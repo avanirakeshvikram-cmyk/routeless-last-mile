@@ -1,15 +1,226 @@
-# Routeless: The Last Mile
-## Problem
-(2-3 lines about students missing buses)
-## Our Solution
-(What your app does)
-## Features
-- Bus seat availability checker
-- Carpool suggestions
-- (add yours)
-## How AI Was Used
-We used [tool name] to generate and improve the code through iterative prompts.
-## Live Demo
-(paste your link)
-## Prompt History
-See PROMPTS.md
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BusBuddy</title>
+<style>
+:root{--bg:#f4f6fb;--card:#fff;--ink:#14213d;--muted:#5a6578;--line:#d8deea;--yellow:#ffc20e;--blue:#14213d;--red:#c62f2f;--green:#1b7f4b;--soft:#fff3c4;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0d1424;--card:#16203a;--ink:#f1f4fa;--muted:#a6b1c6;--line:#2a3857;--red:#ff7b7b;--green:#4cc98a;--soft:#3b3413;--blue:#f1f4fa;color-scheme:dark}}
+*{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{background:var(--yellow);color:#14213d;padding:18px 16px}
+header h1{margin:0;font-size:1.7rem;letter-spacing:-.02em}
+header p{margin:4px 0 0}
+main{max-width:760px;margin:0 auto;padding:16px}
+section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+h2{margin:0 0 4px;font-size:1.15rem}
+.hint{margin:0 0 12px;color:var(--muted);font-size:.9rem}
+button{font:inherit;cursor:pointer;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:12px 14px;min-height:48px}
+button:focus-visible{outline:3px solid #2f6fed;outline-offset:2px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.chip[aria-pressed="true"]{background:#14213d;color:#fff;border-color:#14213d}
+.bus{padding:12px 0;border-top:1px solid var(--line)}
+.bus .top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.bus b{font-size:1.1rem}
+.bus small{display:block;color:var(--muted)}
+.tag{font-size:.8rem;padding:2px 8px;border-radius:99px;background:var(--soft)}
+.seatbar{height:8px;background:var(--line);border-radius:4px;margin:8px 0 2px;overflow:hidden}
+.seatbar i{display:block;height:100%;background:var(--green)}
+.cancelled b,.cancelled small{text-decoration:line-through;color:var(--muted)}
+.cancelled .tag{background:var(--red);color:#fff}
+.danger{border-color:var(--red);color:var(--red)}
+.alts{margin-top:12px;border-left:5px solid var(--yellow);padding:2px 0 2px 12px}
+.alts li{margin:8px 0}
+.alts ul{padding-left:18px;margin:6px 0}
+.slot{display:grid;grid-template-columns:64px 1fr auto;gap:10px;align-items:center;padding:8px 0}
+.bar{height:16px;background:var(--line);border-radius:8px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--green)}
+.bar i.hot{background:var(--red)}
+.slot button[aria-pressed="true"]{background:var(--yellow);border-color:var(--yellow);color:#14213d}
+.msg{font-weight:600;margin:8px 0 0}
+svg{width:100%;height:auto;display:block}
+.road{stroke:var(--muted);stroke-width:3;stroke-linecap:round}
+.road.sel{stroke:var(--yellow);stroke-width:6}
+.road.off{stroke:var(--red);stroke-dasharray:6 6}
+.node{fill:var(--card);stroke:var(--ink);stroke-width:2.5}
+.node.sel{fill:var(--yellow)}
+.college{fill:#14213d;stroke:var(--yellow);stroke-width:3}
+svg text{fill:var(--ink);font-size:12px;font-weight:600;text-anchor:middle}
+footer{text-align:center;color:var(--muted);font-size:.85rem;padding:0 16px 24px}
+</style>
+</head>
+<body>
+<header>
+<h1>BusBuddy</h1>
+<p>Rural bus help for students. Routeless: The Last Mile.</p>
+</header>
+<main>
+<section aria-labelledby="h1">
+<h2 id="h1">Bus timetable</h2>
+<p class="hint">Pick your village to see its buses and seats left.</p>
+<div class="chips" id="villages" role="group" aria-label="Villages"></div>
+<div id="buses"></div>
+<div id="alts" aria-live="polite"></div>
+</section>
+
+<section aria-labelledby="h2">
+<h2 id="h2">Village map</h2>
+<p class="hint">The yellow road is your village route. A red dashed road means a bus is cancelled.</p>
+<div id="map"></div>
+</section>
+
+<section aria-labelledby="h3">
+<h2 id="h3">Demand counter</h2>
+<p class="hint">Tap the time you travel. When a time is crowded, the college can add a bus.</p>
+<div id="slots"></div>
+<p class="msg" id="demandMsg" aria-live="polite"></p>
+</section>
+</main>
+<footer>Sample data for a demo. Real buses would share live GPS location.</footer>
+
+<script>
+// ---------- SAMPLE DATA (edit here) ----------
+// Villages: map position (x,y), distance to college in km, pickup point, shared auto fare
+var VILLAGES = {
+  "Kateel":    {x:50,  y:45,  km:22, pickup:"Kateel bus stand",   fare:35},
+  "Bajpe":     {x:270, y:50,  km:14, pickup:"Bajpe cross",        fare:25},
+  "Mulki":     {x:45,  y:195, km:28, pickup:"Mulki circle",       fare:45},
+  "Moodbidri": {x:275, y:195, km:32, pickup:"Moodbidri market",   fare:50},
+  "Kinnigoli": {x:160, y:30,  km:19, pickup:"Kinnigoli junction", fare:30}
+};
+var COLLEGE = {x:160, y:120};
+var CAPACITY = 40;
+// 8 buses: number, village it serves, departure time, seats
+var BUSES = [
+  {no:"KA-19-B-101", village:"Kateel",    time:"06:30"},
+  {no:"KA-19-B-114", village:"Kateel",    time:"07:30"},
+  {no:"KA-19-C-207", village:"Bajpe",     time:"07:30"},
+  {no:"KA-19-C-211", village:"Bajpe",     time:"08:30"},
+  {no:"KA-19-D-310", village:"Mulki",     time:"06:30"},
+  {no:"KA-19-D-318", village:"Mulki",     time:"07:30"},
+  {no:"KA-19-E-405", village:"Moodbidri", time:"07:30"},
+  {no:"KA-19-F-502", village:"Kinnigoli", time:"08:30"}
+].map(function(b){ b.cap = CAPACITY; b.route = b.village + " to College"; return b; });
+var SLOTS = ["06:30", "07:30", "08:30"];
+var LIMIT = 25; // students at one time that need an extra bus
+var STUDENTS = makeStudents(60);
+
+// ---------- STATE ----------
+var current = "Kateel";
+var cancelled = {};   // bus number -> true
+var tapped = {};      // time -> true (student tapped "I travel")
+var extra = {};       // time -> extra students added by taps
+
+// ---------- HELPER FUNCTIONS ----------
+// Make 60 sample students: each picks one of the buses of their village
+function makeStudents(n){
+  var names = Object.keys(VILLAGES), list = [];
+  for(var i = 0; i < n; i++){
+    var v = names[i % 5];
+    var times = BUSES.filter(function(b){ return b.village === v; }).map(function(b){ return b.time; });
+    list.push({id:i+1, village:v, time:times[(i*3 + Math.floor(i/5)) % times.length], exam:(i % 7 === 0)});
+  }
+  return list;
+}
+function fmt(t){ var p=t.split(":"), h=+p[0]; return (h%12||12)+":"+p[1]+(h<12?" am":" pm"); }
+function mins(t){ var p=t.split(":"); return +p[0]*60 + +p[1]; }
+function busesOf(v){ return BUSES.filter(function(b){ return b.village === v; }); }
+function studentsOn(bus){ return STUDENTS.filter(function(s){ return s.village === bus.village && s.time === bus.time; }).length; }
+function seatsLeft(bus){ return Math.max(0, bus.cap - studentsOn(bus)); }
+function demandAt(time){ return STUDENTS.filter(function(s){ return s.time === time; }).length + (extra[time] || 0); }
+function el(id){ return document.getElementById(id); }
+
+// ---------- 1. TIMETABLE ----------
+function drawVillages(){
+  var box = el("villages"); box.innerHTML = "";
+  Object.keys(VILLAGES).forEach(function(v){
+    var b = document.createElement("button");
+    b.className = "chip"; b.textContent = v; b.setAttribute("aria-pressed", v === current);
+    b.onclick = function(){ current = v; el("alts").innerHTML = ""; drawAll(); };
+    box.appendChild(b);
+  });
+}
+function drawBuses(){
+  var box = el("buses"); box.innerHTML = "";
+  busesOf(current).forEach(function(bus){
+    var off = !!cancelled[bus.no], left = seatsLeft(bus), pct = (bus.cap - left) / bus.cap * 100;
+    var row = document.createElement("div"); row.className = "bus" + (off ? " cancelled" : "");
+    row.innerHTML = '<div class="top"><div><b>' + fmt(bus.time) + '</b> <span class="tag">' + (off ? "Cancelled" : left + " seats left") + '</span>' +
+      '<small>' + bus.route + ' · ' + bus.no + '</small></div></div>' +
+      '<div class="seatbar" role="img" aria-label="' + (bus.cap-left) + ' of ' + bus.cap + ' seats taken"><i style="width:' + pct + '%"></i></div>';
+    var btn = document.createElement("button");
+    if(off){ btn.textContent = "Bus is running again"; btn.onclick = function(){ restoreBus(bus); }; }
+    else { btn.className = "danger"; btn.textContent = "My bus is cancelled"; btn.onclick = function(){ cancelBus(bus); }; }
+    row.querySelector(".top").appendChild(btn);
+    box.appendChild(row);
+  });
+}
+
+// ---------- 2. CANCELLED BUS + ALTERNATIVES ----------
+function cancelBus(bus){ cancelled[bus.no] = true; drawAll(); showAlternatives(bus); }
+function restoreBus(bus){ delete cancelled[bus.no]; el("alts").innerHTML = ""; drawAll(); }
+function showAlternatives(bus){
+  var v = VILLAGES[bus.village];
+  var next = busesOf(bus.village).filter(function(b){
+    return mins(b.time) > mins(bus.time) && !cancelled[b.no] && seatsLeft(b) > 0;
+  })[0];
+  var peers = STUDENTS.filter(function(s){ return s.village === bus.village && s.time === bus.time; }).length;
+  var h = '<div class="alts"><b>Other ways to reach college from ' + bus.village + '</b><ul>';
+  h += next ? '<li><b>Next bus:</b> ' + fmt(next.time) + ' (' + next.no + '), ' + seatsLeft(next) + ' seats left. Wait ' + (mins(next.time) - mins(bus.time)) + ' minutes.</li>'
+            : '<li><b>Next bus:</b> no more buses with seats today. Use the options below.</li>';
+  h += '<li><b>Shared auto:</b> about ₹' + v.fare + ' each if 3 students share (' + v.km + ' km).</li>';
+  h += '<li><b>Carpool:</b> ' + peers + ' students from ' + bus.village + ' also travel at ' + fmt(bus.time) + '. Form a group and leave together.</li>';
+  h += '<li><b>Pickup point:</b> meet at ' + v.pickup + '.</li></ul></div>';
+  el("alts").innerHTML = h;
+}
+
+// ---------- 3. DEMAND COUNTER ----------
+function drawSlots(){
+  var box = el("slots"); box.innerHTML = ""; var crowded = [];
+  SLOTS.forEach(function(t){
+    var n = demandAt(t), hot = n >= LIMIT; if(hot) crowded.push(fmt(t));
+    var row = document.createElement("div"); row.className = "slot";
+    row.innerHTML = '<span>' + fmt(t) + '</span><div class="bar" role="img" aria-label="' + n + ' students at ' + fmt(t) + '"><i class="' + (hot ? "hot" : "") + '" style="width:' + Math.min(100, n/LIMIT*100) + '%"></i></div>';
+    var b = document.createElement("button");
+    b.setAttribute("aria-pressed", !!tapped[t]); b.textContent = (tapped[t] ? "✓ " : "") + "I travel · " + n;
+    b.onclick = function(){ toggleDemand(t); };
+    row.appendChild(b); box.appendChild(row);
+  });
+  el("demandMsg").textContent = crowded.length
+    ? "Extra bus needed at " + crowded.join(" and ") + ". " + LIMIT + " or more students travel then."
+    : "No time is crowded. An extra bus is asked for at " + LIMIT + " students.";
+}
+function toggleDemand(t){
+  if(tapped[t]){ delete tapped[t]; extra[t] = (extra[t] || 1) - 1; } else { tapped[t] = true; extra[t] = (extra[t] || 0) + 1; }
+  drawSlots();
+}
+
+// ---------- 4. MAP ----------
+function drawMap(){
+  var s = '<svg viewBox="0 0 320 240" role="img" aria-label="Map of five villages and the college">';
+  // roads from each village to the college
+  Object.keys(VILLAGES).forEach(function(n){
+    var v = VILLAGES[n], allOff = busesOf(n).every(function(b){ return cancelled[b.no]; });
+    var cls = "road" + (allOff ? " off" : (n === current ? " sel" : ""));
+    s += '<line class="' + cls + '" x1="' + v.x + '" y1="' + v.y + '" x2="' + COLLEGE.x + '" y2="' + COLLEGE.y + '"/>';
+  });
+  // villages
+  Object.keys(VILLAGES).forEach(function(n){
+    var v = VILLAGES[n];
+    s += '<circle class="node' + (n === current ? " sel" : "") + '" cx="' + v.x + '" cy="' + v.y + '" r="10"/>';
+    s += '<text x="' + v.x + '" y="' + (v.y + (v.y > 120 ? 26 : -16)) + '">' + n + '</text>';
+  });
+  s += '<rect class="college" x="' + (COLLEGE.x-12) + '" y="' + (COLLEGE.y-12) + '" width="24" height="24" rx="4"/>';
+  s += '<text x="' + COLLEGE.x + '" y="' + (COLLEGE.y + 30) + '">College</text></svg>';
+  el("map").innerHTML = s;
+}
+
+// ---------- START ----------
+function drawAll(){ drawVillages(); drawBuses(); drawMap(); drawSlots(); }
+drawAll();
+</script>
+</body>
+</html>
